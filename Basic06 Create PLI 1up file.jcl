@@ -1,16 +1,21 @@
-//BASIC06  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A ,TYPRUN=SCAN
+//BASIC06  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A, ,TYPRUN=SCAN
+//   USER=HERC01,PASSWORD=CUL8TR
 //S1  EXEC PGM=IEBUPDTE,PARM=NEW
-//SYSPRINT DD SYSOUT=C
-//SYSUT2   DD DSN=HERCEL.BASIC1UP.PLI,DISP=OLD
+//SYSPRINT DD SYSOUT=*
+//SYSUT2   DD DSN=HERC01.BASIC1UP.PLI,DISP=OLD
 //SYSIN DD *
 ./  ADD NAME=BASENV
-1       /*************** START BASENV  V1.0.0 *****************/
+1       /*************** START BASENV  V1.0.2 *****************/
 0BASIC:PROCEDURE(EXEC_PARM) OPTIONS(MAIN);
      DECLARE EXEC_PARM  CHAR(100) VARYING;
  /********************************************************************
  *                                                                   *
  *   BASENV - THIS IS THE MODULE TO ESTABLISH THE BASIC ENVIRONMENT  *
- *            THIS ONE SETS UP FOR THE BATCH1UP OPTION.              *
+ *            THIS ONE SETS UP FOR THE BASIC1UP OPTION.              *
+ *                                                                   *
+ *   VERSION  COMMENTS                                               *
+ *     1.0.0  INITIAL VERSION                                        *
+ *     1.0.1  CHANGED MAX_EXECS FROM 5000 TO 0                       *
  *                                                                   *
  ********************************************************************/
 
@@ -30,8 +35,8 @@
      %$MAX_LINES=500;        /* MAX NUMBER OF LINE IN BASIC PGM     */
      %$MAX_SYM=200;          /* MAX NUMBER DATA ELEMENTS IN SYM TBL */
      %$MAX_PCODE=500;        /* MAX NUMBER OF PCODES                */
-     %$MAX_EXECS=5000;       /* MAX PCODES BEFORE ABORTED AS LOOPED */
-     %$DEFAULT_DSN='''HERCEL.BASICLIB.BAS''';
+     %$MAX_EXECS=0;          /* MAX PCODES BEFORE ABORTED AS LOOPED */
+     %$DEFAULT_DSN='''HERC01.BASICLIB.BAS''';
 
  /********************************************************************
  *                                                                   *
@@ -50,8 +55,8 @@
  *                                                                   *
  ********************************************************************/
 
-     DECLARE PAGE_TITLE          CHAR(20) STATIC
-                                 INITIAL('BASIC/360   V3.2.0 ');
+     DECLARE PAGE_TITLE          CHAR(22) STATIC
+                                 INITIAL('BASIC/360   V3.3.0 1UP');
      DECLARE ENV_PTR             POINTER;
 
      DECLARE DEFAULT_DSN         CHAR(44) INITIAL((44)' ');
@@ -59,7 +64,7 @@
                                  $DEFAULT_DSN);
      DECLARE SAVE_MEMBER_NAME    CHAR(8)  INITIAL((8)' ');
      DECLARE NEW_LIB             CHAR(100) VARYING;
-     DECLARE ENFORCE_MAX_EXECS   BIT(1) ALIGNED INITIAL('1'B);
+     DECLARE ENFORCE_MAX_EXECS   BIT(1) ALIGNED INITIAL('0'B);
      DECLARE MAX_EXECS           FIXED BINARY(31)
                                  ALIGNED INITIAL($MAX_EXECS);
      DECLARE INPUT_BUFFER        CHAR(80) VARYING
@@ -100,7 +105,7 @@
                       ('DEFAULT DSN=',DEFAULT_LIB) (SKIP,A,A);
  ENV_EXIT:
      END;
-        /*************** END BASENV  V1.0.0 *****************/
+        /*************** END BASENV  V1.0.1 *****************/
 ./  ADD NAME=BASINP
  /******************** START BASINP.PLI V1.0.0 **********************/
  /********************************************************************
@@ -247,7 +252,7 @@
  /******************** END BASPRT.PLI V1.0.0 **********************/
 ./  ADD NAME=BASRDR
 1/****************  START BASRDR  V1.0.0  *****************************
- *                   FOR STANDALONE BATCH                             *
+ *                   FOR BASIC1UP OPTION                              *
  *                                                                    *
  *  THIS IS THE MAIN DRIVING LOOP FOR BASIC.                          *
  *                                                                    *

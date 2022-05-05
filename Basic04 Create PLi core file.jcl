@@ -1,10 +1,11 @@
-//BASIC04  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A ,TYPRUN=SCAN
+//BASIC04  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A, ,TYPRUN=SCAN
+//   USER=HERC01,PASSWORD=CUL8TR
 //S1  EXEC PGM=IEBUPDTE,PARM=NEW
-//SYSPRINT DD SYSOUT=C
-//SYSUT2   DD DSN=HERCEL.BASIC.PLI,DISP=OLD
+//SYSPRINT DD SYSOUT=*
+//SYSUT2   DD DSN=HERC01.BASIC.PLI,DISP=OLD
 //SYSIN DD *
 ./  ADD NAME=BASCORE
-          /****** BASIC/360  V3.2 ** 01/20/2021 ** *******/
+             /****** BASIC/360  V3.3 ** 05/04/2022 *********/
  /********************************************************************
  *                                                                   *
  *   SOUTH HAMMOND INSTITUTE OF TECHNOLOGY  BASIC/360   FALL 1974    *
@@ -34,6 +35,30 @@
  *      3) ONLINE (WISH) - BASIC PROGRAM CAN BE ENTERED, EDITED AND  *
  *                         EXECUTED ON LINE.                         *
  *                                                                   *
+ ********************************************************************/
+ /********************************************************************
+ *                                                                   *
+ *   BASIC/360 V3.3                                                  *
+ *                                                                   *
+ *   V3.3 CHANGE LOG                                                 *
+ *  -- FIXES:                                                        *
+ *   - FIXED BUG COMPILING 1ST PRINT STATEMENT.                      *
+ *   - FIXED SEP_CHAR USED IN A STRING TERMINATES STATEMENT          *
+ *   - FIXED BUG IN PRINT STATEMENT WHERE CODE COMPILED BUT          *
+ *     THE VALUE IS NOT PRINTED.                                     *
+ *   - FIXED BUG IN BALANCE_STMT TO CORRECTLY COUNT PARENS           *
+ *  --ENHANCEMENTS:                                                  *
+ *   - CODE CLEAN UP                                                 *
+ *   - ADDED EXP AND LOG LIBRARY FUNCTION                            *
+ *   - MODIFIED KEYWORD SCAN TO STOP WHEN KEYWORD FOUND RATHER THAN  *
+ *     DEPENDING ON A SPACE AS A DELIMITER.                          *
+ *   - IMPLEMENTED IMPLIED LET IF AN = IS FOUND DURING KEYWORD SCAN  *
+ *   - INTRODUCED THE $DEBUG MACRO                                   *
+ *  -- KNOWN BUGS:                                                   *
+ *   - RENUM DOES NOT WORK WITH THE SEPCHAR CHARACTER.               *
+ *   - UNINARY "-" NOT WORKING.  CAUSES CONVERSION                   *
+ *        WORKAROUNC IS TO CODE 0-Z RATHER THEN -Z                   *
+ *        MORE TO COME....                                           *
  ********************************************************************/
  /********************************************************************
  *                                                                   *
@@ -200,8 +225,9 @@
  %INCLUDE SELECT;
  %INCLUDE GENPC;
  %INCLUDE GENSYM;
-
- %INCLUDE BASENV;
+ %INCLUDE $DEBUG;
+ %$DEBUG_TR='OFF';
+ /*#INCLUDE ..\BASICTEST\BASICTEST1UP\BASENV.PLI*/ %INCLUDE BASENV;
 
  /********************************************************************
  *                                                                   *
@@ -542,7 +568,7 @@
      PC_CON_TABLE_PTR = ADDR(PC_CONSTANTS);
      SS_CON_TABLE_PTR = ADDR(SS_CONSTANTS);
 
- %INCLUDE BASRDR;
+ /*#INCLUDE ..\..\BASICTEST\BASICTEST1UP\BASRDR.PLI*/ %INCLUDE BASRDR;
 1/*******************************************************************/
  /*******************************************************************/
  /*******************************************************************/
@@ -601,6 +627,8 @@
      GENSYM(TAN,SS_FUNC,0.0,*)
      GENSYM(RND,SS_FUNC,0.0,*)
      GENSYM(INR,SS_FUNC,0.0,*)
+     GENSYM(EXP,SS_FUNC,0.0,*)
+     GENSYM(LOG,SS_FUNC,0.0,*)
 
      SS_CUR,SS_MAX,SS_MAX_FNC = GENSYM_CTR;
 
@@ -793,10 +821,12 @@
      DECLARE ALL_PROCESSED             BIT(1) ALIGNED;
      DECLARE MORE_STMTS                BIT(1) ALIGNED;
      DECLARE LIST_SOURCE_CODE          BIT(1) ALIGNED;
-     DECLARE (FUNC_NAME,FUNC_ARG) CHAR(10);
-     DECLARE (TMP_CNT,STR_CNT)              PICTURE '99';
+     DECLARE (FUNC_NAME,FUNC_ARG)      CHAR(10);
+     DECLARE (TMP_CNT,STR_CNT)         PICTURE '99';
      DECLARE RESULT_SYMBOL             CHAR(10);
      DECLARE RESULT_OFFSET             FIXED BINARY ALIGNED;
+     DECLARE (TEMP_LEFT,TEMP_RIGHT)    FIXED BINARY ALIGNED;
+     DECLARE LAST_NON_BLANK            FIXED BINARY ALIGNED;
 
      ON ENDPAGE(SYSPRINT)
      BEGIN;
@@ -819,6 +849,7 @@
      SAVE_CODE=FALSE;
      STR_CNT = 0;
      SC_CUR=0;
+     $DEBUG(OFF)
      DO WHILE(SC_CUR<SC_MAX);
          SC_CUR=SC_CUR+1;
          STMT=SOURCE_LINE(SC_CUR);
@@ -840,10 +871,14 @@
             LS_LINE(LS_MAX)=LAST_LINE_NUM;
             LS_OFFSET(LS_MAX)=PC_MAX;
             LS_SOURCE(LS_MAX)=SC_CUR;
+            STMT_RIGHT=72;   /*  RESET DEFAULT  */
 
   /*   MULTIPLE KEYWORDS PER STATEMENT ARE SEPERATED BY SEP_CHAR */
+  /*   MUST IGNORE SEP_CHAR IF IT IS IN A STRING                 */
 
-            SEP_CHAR_IDX=INDEX(STMT,SEP_CHAR);
+            SEP_CHAR_IDX=INDEX_SEP_CHAR(ONE_FBA);
+
+            $DEBUG(DATA,SEP_CHAR_IDX,SEP_CHAR)
             IF SEP_CHAR_IDX = 0 THEN
             DO;
                CALL GET_KEYWORD;
@@ -853,37 +888,64 @@
             END;
             ELSE
             DO;
+               LAST_NON_BLANK=72;
+               DO WHILE(SUBSTR(STMT,LAST_NON_BLANK,1)=' '
+                        & LAST_NON_BLANK > 1);
+                  LAST_NON_BLANK=LAST_NON_BLANK-1;
+               END;
+               $DEBUG(DATA,LAST_NON_BLANK)
                STMT_RIGHT=SEP_CHAR_IDX-1;
+               TEMP_LEFT=STMT_CH;
+               TEMP_RIGHT=SEP_CHAR_IDX-1;
                MORE_STMTS=TRUE;
                ALL_PROCESSED=FALSE;
                DO WHILE(MORE_STMTS);
-            /*****************************************************
-                  PUT SKIP LIST(STMT_CH,STMT_RIGHT);
-                  PUT SKIP LIST('"'||
-                           SUBSTR(STMT,STMT_CH,STMT_RIGHT-STMT_CH+1)
-                                   ||'"');
-            *****************************************************/
-                  CALL GET_KEYWORD;
-                  CALL PROCESS_KEYWORD;
-                  IF ICODE_PRINT THEN
-                     CALL PRINT_PCODES;
+                  $DEBUG(LIST,'MORE STMTS')
+                  $DEBUG(DATA,STMT_CH,STMT_RIGHT,SEP_CHAR_IDX)
+                  $DEBUG(DATA,TEMP_LEFT,TEMP_RIGHT,ALL_PROCESSED)
+                  STMT_CH=TEMP_LEFT;
+                  STMT_RIGHT=TEMP_RIGHT;
+                  $DEBUG(LIST,'OLD CODE IS ',
+                           SUBSTR(STMT,STMT_CH,STMT_RIGHT-STMT_CH+1))
+                  $DEBUG(LIST,'NEW CODE IS ',
+                           SUBSTR(STMT,TEMP_LEFT,
+                                  TEMP_RIGHT-TEMP_LEFT+1))
                   IF ALL_PROCESSED THEN
                       MORE_STMTS=FALSE;
                   ELSE
                   DO;
+                     CALL GET_KEYWORD;
+                     CALL PROCESS_KEYWORD;
+                     IF ICODE_PRINT THEN
+                        CALL PRINT_PCODES;
+                     TEMP_LEFT=TEMP_RIGHT+2;
                      STMT_CH=SEP_CHAR_IDX+1;
-                     SEP_CHAR_IDX_2
-                               =INDEX(SUBSTR(STMT,STMT_CH),SEP_CHAR);
+                     STMT_RIGHT=72;
+                     SEP_CHAR_IDX_2=INDEX_SEP_CHAR(TEMP_LEFT);
+                     $DEBUG(LIST,'SCANNING FOR SEP_CHAR_IDX_2')
+                     $DEBUG(DATA,TEMP_LEFT,SEP_CHAR_IDX_2,SEP_CHAR)
                      IF SEP_CHAR_IDX_2 = 0 THEN
                      DO;
-                         ALL_PROCESSED=TRUE;
-                         STMT_RIGHT=72;
+                        ALL_PROCESSED=TRUE;
+                        STMT_RIGHT=72;
+                        SEP_CHAR_IDX=STMT_CH+1;
+                        TEMP_LEFT=TEMP_RIGHT+2; /* SKIP SEP CHAR */
+                        TEMP_RIGHT=LAST_NON_BLANK;
+                        $DEBUG(LIST,'ALL PROCESSED')
+                        $DEBUG(DATA,TEMP_LEFT,TEMP_RIGHT)
                      END;
                      ELSE
                      DO;
-                        STMT_RIGHT=SEP_CHAR_IDX_2+SEP_CHAR_IDX-1;
+                        STMT_RIGHT=SEP_CHAR_IDX_2-1;
                         SEP_CHAR_IDX=SEP_CHAR_IDX_2+SEP_CHAR_IDX;
+                        $DEBUG(LIST,'MORE TO PROCESS')
+                        TEMP_LEFT=TEMP_RIGHT+2;  /* SKIP SEP_CHAR */
+                        TEMP_RIGHT=SEP_CHAR_IDX_2-1;
+                        $DEBUG(DATA,TEMP_LEFT,TEMP_RIGHT,SEP_CHAR_IDX_2)
                      END;
+                     $DEBUG(LIST,'END OF LOOP')
+                     $DEBUG(DATA,TEMP_LEFT,TEMP_RIGHT)
+                     $DEBUG(DATA,STMT_RIGHT,SEP_CHAR_IDX,STMT_CH)
                   END;
                END; /* OF DO WHILE */
             END; /* OF MULTI STMTS */
@@ -901,7 +963,7 @@
                    A,F(5,0));
         PUT SKIP(2);
      END;
-
+     $DEBUG(OFF)
      IF TABLE_PRINT THEN;
      ELSE
         GO TO END_OF_COMP;
@@ -925,7 +987,8 @@
      END;
      PUT SKIP LIST('END OF DATA STACK');
 
-     PUT SKIP(2) EDIT('OFFSET','LINE  OP   OBJECT') (A,X(7),A);
+     PUT SKIP(2) EDIT('OFFSET','LINE  OP   OBJECT      FORMAT')
+                      (A,X(7),A);
      CALL PRINT_PCODES;
      PUT SKIP LIST('END OF PCODE TABLE');
 
@@ -956,6 +1019,56 @@
                     DS_MAX,' DATA ITEMS DEFINED ****')
             (A,F(6),A,F(6),A,F(6),A);
      CALL DISPLAY_PRINT_LINE;
+
+ INDEX_SEP_CHAR:PROC(STMT_POS) RETURNS(FIXED BINARY);
+ /********************************************************************
+ *                                                                   *
+ *   THIS ROUTINE SCANS THE SOURCE STATEMENT FOR SEP_CHAR CHARACTER  *
+ *                                                                   *
+ *   A SIMPLE INDEX WILL DETECT A SEP_CHAR INSIDE OF A STRING.       *
+ *   THEREFORE, A SCAN FOR NOT LOOKING FOR SEP_CHAR WITHIN A STRING  *
+ *   MUST BE PERFORMED.                                              *
+ *                                                                   *
+ * NESTING:COMPILE                                                   *
+ ********************************************************************/
+     DECLARE STMT_POS                  FIXED BINARY ALIGNED;
+     DECLARE IDX,I                     FIXED BINARY ALIGNED;
+     DECLARE IN_STR                    BIT(1) ALIGNED;
+     DECLARE CH                        CHAR(1);
+     $DEBUG(OFF)
+     $DEBUG(LIST,'IN INDEX,STMT_POS=',STMT_POS)
+     IF STMT_POS < 2 THEN
+        IDX=INDEX(STMT,SEP_CHAR);
+     ELSE
+        IDX=INDEX(SUBSTR(STMT,STMT_POS),SEP_CHAR);
+     $DEBUG(DATA,IDX)
+     IF IDX=0 THEN
+        RETURN(IDX);
+     I=STMT_POS;
+     IN_STR=FALSE;
+     IDX=0;
+     DO WHILE(I<=72         & IDX=0);
+        CH=SUBSTR(STMT,I,1);
+        $DEBUG(DATA,I,CH)
+        IF IN_STR THEN
+        DO;
+           IF CH=QUOTE_1 THEN
+              IN_STR=FALSE;
+        END;
+        ELSE
+        DO;
+           IF CH=QUOTE_1 THEN
+              IN_STR=TRUE;
+           ELSE
+              IF CH=SEP_CHAR THEN
+                IDX=I;
+        END;
+        I=I+1;
+     END;
+     $DEBUG(DATA,IDX,CH)
+     $DEBUG(OFF)
+     RETURN(IDX);
+ END INDEX_SEP_CHAR;
 
  PROCESS_OPTS:PROC;
  /********************************************************************
@@ -1264,27 +1377,33 @@
           WHEN(PC_FORMAT_0)
               PUT SKIP EDIT(I,   PC_MNEMONIC(PC_OPCODE(I)),
                                  SYMBOL(PC_OBJECT(I)))
-                                (P'999999',X(13),A,X(2),A);
+                                (P'999999',X(13),A,X(2),A)
+                                ('0') (COL(38),A);
           WHEN(PC_FORMAT_1)
              PUT SKIP EDIT(I,    LS_LINE(PC_OBJECT(I)),
                                  PC_MNEMONIC(PC_OPCODE(I)))
-                                (P'999999',X(3),A,X(2),A);
+                                (P'999999',X(3),A,X(2),A)
+                                ('1') (COL(38),A);
           WHEN(PC_FORMAT_2)
               PUT SKIP EDIT(I,   PC_MNEMONIC(PC_OPCODE(I)),
                                  PC_OBJECT(I))
-                                (P'999999',X(13),A,X(2),A);
+                                (P'999999',X(13),A,X(2),A)
+                                ('2') (COL(38),A);
           WHEN(PC_FORMAT_3)
               PUT SKIP EDIT(I,   PC_MNEMONIC(PC_OPCODE(I)),
                                  STRING_VAL(PC_OBJECT(I)))
-                                (P'999999',X(13),A,X(2),A);
+                                (P'999999',X(13),A,X(2),A)
+                                ('3') (COL(38),A);
           WHEN(PC_FORMAT_4)
               PUT SKIP EDIT(I,   PC_MNEMONIC(PC_OPCODE(I)),
                                  ' ')
-                                (P'999999',X(13),A,X(2),A);
+                                (P'999999',X(13),A,X(2),A)
+                                ('4') (COL(38),A);
           WHEN(PC_FORMAT_5)
               PUT SKIP EDIT(I,   PC_MNEMONIC(PC_OPCODE(I)),
                                  PC_OBJECT(I))
-                                (P'999999',X(13),A,X(2),F(5));
+                                (P'999999',X(13),A,X(2),F(5))
+                                ('5') (COL(38),A);
           OTHERWISE
              PUT EDIT('**** FATAL ERROR IN COMPILER *****',
                       '**** INVALID VALUE FOR PC_OPCODE ',
@@ -1359,7 +1478,9 @@
 
     ON CONVERSION
     BEGIN;
-    /* PUT SKIP LIST('CONVERSION RAISED FOR ',V); */
+       $DEBUG(OFF)
+       $DEBUG(LIST,'CONVERSION RAISED FOR V',V);
+       $DEBUG(OFF)
        CONTINUE_SCAN=FALSE;
        ONCHAR='0';
     END;
@@ -1385,6 +1506,9 @@
     SYM_DIM_MAX(SS_MAX)=0;
     SYM_DIM2_MAX(SS_MAX)=0;
     STRING_VAL(SS_MAX)='*';
+    $DEBUG(OFF)
+    $DEBUG(LIST,'V=',V,LENGTH(V))
+    $DEBUG(OFF)
     IF SUBSTR(V,1,1) >= 'A' & SUBSTR(V,1,1) <= 'Z' THEN
     DO;
        STR_IND=VERIFY(V,VALID_VAR_CHARS);
@@ -1532,10 +1656,18 @@
  *                                                                   *
  *   EXTRACT THE STATMENT KEYWORD AND VALIDATE IT                    *
  *                                                                   *
+ *   KEYWORDS SCAN IS ENDED WHEN A COMPLETE KEYWORD IS DETECTED.  A  *
+ *   SPACE CAN END A KEYWORD AS WELL.                                *
+ *                                                                   *
+ *   SPECIAL CASE EXISTS WHEN THE KEYWORD LET IS OMITTED.  IN THIS   *
+ *   CASE, AN '=' ENDS THE SEARCH AND THE LET ASSUMED.               *
+ *                                                                   *
+ *                                                                   *
  * NESTING:COMPILE                                                   *
  ********************************************************************/
     DECLARE (I,J)               FIXED BINARY ALIGNED;
     DECLARE CONTINUE_SCAN       BIT(1) ALIGNED;
+    DECLARE CONTINUE_LOOKUP     BIT(1) ALIGNED;
     DECLARE CH                  CHAR(1);
     DECLARE KW                  CHAR(11) VARYING;
 
@@ -1546,25 +1678,11 @@
        RETURN;
     END;
 
+    $DEBUG(OFF)
     KW='';
     CONTINUE_SCAN=TRUE;
     DO I=STMT_CH TO STMT_RIGHT WHILE(CONTINUE_SCAN);
        CH=SUBSTR(STMT,I,1);
-     /***********************************************************
-     *   RELAXED  KEYWORD SEARCH - DEFERED TO FUTURE VERSION    *
-     *     WHEN KW IS A SPECIFIC LENGTH, IT WILL BE CHECKED     *
-     *     FOR KEYWORDS.                                        *
-     ************************************************************
-     * IF LENGTH(KW) = 5 THEN
-     *    IF KW='PRINT' THEN
-     *       GO TO SHORT_CIRCUIT;
-     * IF CH='=' THEN
-     * DO;
-     *    KW='LET';
-     *    WORD=KW;
-     *    RETURN;
-     * END;
-     **********************************************************/
        IF CH=' ' THEN
        DO;
           IF LENGTH(KW)=2 THEN
@@ -1575,20 +1693,51 @@
           END;
           ELSE
              CONTINUE_SCAN=FALSE;
+          DO J=I+1 TO STMT_RIGHT WHILE(CH=' ');
+             CH=SUBSTR(STMT,J,1);
+          END;
+          IF CH='=' THEN           /* IMPLIED LET? */
+          DO;
+             KW='LET';
+             WORD=KW;
+             $DEBUG(LIST,WORD,' ASSUMED LET')
+             RETURN;
+          END;
        END;
        ELSE
        DO;
+          IF CH='=' THEN           /* IMPLIED LET? */
+          DO;
+             KW='LET';
+             WORD=KW;
+             RETURN;
+          END;
           KW=KW||CH;
           IF LENGTH(KW)>9 THEN
           DO;
              CONTINUE_SCAN=FALSE;
              CALL PRINT_ERR(I,'KEYWORD TOO LONG');
           END;
+          ELSE
+          DO;
+             WORD=KW;
+             CONTINUE_LOOKUP=TRUE;
+             DO J=1 TO HBOUND(KEY_WORDS,1) WHILE(CONTINUE_LOOKUP);
+               IF WORD=KEY_WORDS(J) THEN
+                  CONTINUE_LOOKUP=FALSE;
+             END;
+             IF CONTINUE_LOOKUP THEN ;    /* NO KEYWORD FOUND */
+             ELSE
+             DO;
+                $DEBUG(DATA,WORD,CONTINUE_LOOKUP,I)
+                CONTINUE_SCAN=FALSE;
+             END;
+          END;
        END;
     END;
  /* SHORT_CIRCUIT: */
     WORD=KW;
-
+    $DEBUG(DATA,WORD,KW)
     CONTINUE_SCAN=TRUE;
     DO J=1 TO HBOUND(KEY_WORDS,1) WHILE(CONTINUE_SCAN);
        IF WORD=KEY_WORDS(J) THEN
@@ -1600,7 +1749,7 @@
     END;
 
     STMT_CH=I;
-
+    $DEBUG(OFF)
  END GET_KEYWORD;
 
  PROCESS_KEYWORD:PROC;
@@ -2028,8 +2177,10 @@
     END;
 
     I=STMT_CH;
+    $DEBUG(OFF)
     DO WHILE(I <= STMT_RIGHT);
       CH=SUBSTR(STMT,I,1);
+      $DEBUG(DATA,CH,IN_STR,LEFT_SIDE)
       IF IN_STR THEN
       DO;
          IF CH=QUOTE_1 THEN
@@ -2080,7 +2231,8 @@
       END;
     I=I+1;
     END;
-
+    $DEBUG(DATA,LEFT_SIDE)
+    $DEBUG(OFF)
     IF LENGTH(LEFT_SIDE)>0 THEN
         IF SUBSTR(LEFT_SIDE,1,1)=QUOTE_1 THEN
             CALL PROCESS_PRINT_STR;
@@ -2124,9 +2276,10 @@
 
     LEFT_SIDE='('||LEFT_SIDE||')';
     CALL PARSE_EXP(LEFT_SIDE,EXP_CALC);
+    $DEBUG(OFF)
     IF PC_MAX > 0 THEN
     DO;
-  /*   PUT SKIP LIST('***ENTER PRINT_VAR',PC_MAX); *DEL*/
+       $DEBUG(LIST,'***ENTER PRINT_VAR',PC_MAX);
        IF PC_OPCODE(PC_MAX)=PC_OPCODE_LDA THEN
        DO;
           IF PC_OPCODE(PC_MAX-2)=PC_OPCODE_DSL THEN
@@ -2153,25 +2306,47 @@
        END;
        IF PC_OPCODE(PC_MAX)=PC_OPCODE_STA THEN
        DO;
+          $DEBUG(LIST,'****STA OPTION')
+          $DEBUG(DATA,PC_MAX)
+          $DEBUG(DATA,SYMBOL(PC_OBJECT(PC_MAX)),
+                      SYMBOL(PC_OBJECT(PC_MAX-2)),
+                      SYMBOL(PC_OBJECT(PC_MAX-1)))
+          $DEBUG(DATA,PC_OPCODE(PC_MAX-1),PC_OPCODE_DSL);
           IF PC_OPCODE(PC_MAX-1)=PC_OPCODE_DSL  &
              PC_OBJECT(PC_MAX-1)=PC_OBJECT(PC_MAX) THEN
           DO;
+             $DEBUG(LIST,'**** CHANGES STA TO PRV');
              PC_OPCODE(PC_MAX)=PC_OPCODE_PRV;
           END;
           ELSE
-          IF PC_MAX > 2 &
-             PC_FORMAT(PC_OBJECT(PC_MAX-2))=PC_FORMAT_0 THEN
           DO;
-             PUT SKIP LIST('****STA OPTION');
-             IF SYMBOL(PC_OBJECT(PC_MAX-2))='TAB       ' THEN;
+             IF PC_MAX > 2 THEN
+             DO;
+         /***   IF PC_FORMAT(PC_OBJECT(PC_MAX-2))=PC_FORMAT_0 THEN
+                DO; ***/
+                   IF SYMBOL(PC_OBJECT(PC_MAX-1))='TAB       ' THEN;
+                   ELSE
+                   DO;
+                      $DEBUG(LIST,'**** ADDS PRV');
+                      CALL ADD_PCODE(PC_OPCODE_PRV,PC_OBJECT(PC_MAX));
+                   END;
+         /****  END;
+                ELSE
+                DO;
+                     $DEBUG(LIST,'**** UNSURE PRV') ;
+                      CALL ADD_PCODE(PC_OPCODE_PRV,PC_OBJECT(PC_MAX));
+                END; ***/
+             END;
              ELSE
+             DO;
+                $DEBUG(LIST,'**** LAST RESORT ADDS PRV',PC_MAX);
                 CALL ADD_PCODE(PC_OPCODE_PRV,PC_OBJECT(PC_MAX));
+             END;
           END;
-          ELSE
-             CALL ADD_PCODE(PC_OPCODE_PRV,PC_OBJECT(PC_MAX));
        END;
-  /*   PUT SKIP LIST('***EXIT PRINT_VAR',PC_MAX);      *DEL*/
+       $DEBUG(LIST,'***EXIT PRINT_VAR',PC_MAX);
     END;
+    $DEBUG(OFF)
 
     LEFT_SIDE='';
 
@@ -2569,10 +2744,10 @@
  * NESTING:COMPILE                                                   *
  ********************************************************************/
     DECLARE I                   FIXED BINARY ALIGNED;
+    DECLARE NO_BLANK_FOUND      FIXED BINARY ALIGNED;
     DECLARE CH                  CHAR(1);
     DECLARE (LEFT_SIDE,RIGHT_SIDE)
                                 CHAR(80) VARYING;
-    DECLARE NO_EQUAL            BIT(1) ALIGNED;
 
     CH=SUBSTR(STMT,STMT_CH,1);
     IF CH<'A' | CH>'Z' THEN
@@ -2595,7 +2770,25 @@
          ELSE
             LEFT_SIDE=LEFT_SIDE||CH;
     END;
-
+    NO_BLANK_FOUND=0;
+    DO I=1 TO LENGTH(RIGHT_SIDE) WHILE(NO_BLANK_FOUND=0);
+       IF (SUBSTR(RIGHT_SIDE,I,1)=' ') THEN;
+       ELSE
+          NO_BLANK_FOUND = I;
+    END;
+    IF NO_BLANK_FOUND > 1 THEN
+        RIGHT_SIDE = SUBSTR(RIGHT_SIDE,NO_BLANK_FOUND);
+    NO_BLANK_FOUND=0;
+    DO I=LENGTH(RIGHT_SIDE) TO 1 BY -1 WHILE(NO_BLANK_FOUND=0);
+       IF (SUBSTR(RIGHT_SIDE,I,1)=' ') THEN;
+       ELSE
+          NO_BLANK_FOUND = I;
+    END;
+    IF NO_BLANK_FOUND > 0 THEN
+        RIGHT_SIDE = SUBSTR(RIGHT_SIDE,1,NO_BLANK_FOUND);
+    $DEBUG(OFF)
+    $DEBUG(DATA,LEFT_SIDE,RIGHT_SIDE,NO_BLANK_FOUND);
+    $DEBUG(OFF)
     CALL BALANCE_STMT(LEFT_SIDE);
     IF TERMINATE_SCAN THEN RETURN;
     CALL BALANCE_STMT(RIGHT_SIDE);
@@ -2768,9 +2961,11 @@
           DO;
              PARENS=PARENS-1;
              IF PARENS < 0 THEN
+             DO;
                 CALL PRINT_ERR(STMT_CH,'INVALID USE OF PARENS');
                 RETURN;
              END;
+          END;
        IF SUBSTR(EXP,I,1)=QUOTE_1 THEN QUOTES=QUOTES+1;
     END;
 
@@ -2815,6 +3010,8 @@
                  3  OP          CHAR(1);
 
     STACK_MAX,STACK_CUR=0;
+    WORD(*)=(10)' ';
+    OP(*)=' ';
     CALL POPULATE_STACK;
     IF EXP_TYPE=EXP_FN_CALC THEN
     DO;
@@ -2988,21 +3185,25 @@
              STR_WORK=STR_WORK||CH;
        END;
        ELSE
-       IF CH=QUOTE_1 THEN
        DO;
-           IN_STR=TRUE;
+          IF CH=QUOTE_1 THEN
+          DO;
+              IN_STR=TRUE;
+          END;
+          ELSE
+          IF CH='(' | CH=')' | CH='+' | CH='-' | CH='*' | CH='/' |
+             CH='^' | CH=',' THEN
+          DO;
+              STACK_MAX=STACK_MAX+1;
+              WORD(STACK_MAX)=V;
+              OP(STACK_MAX)=CH;
+              V='';
+          END;
+          ELSE
+              IF CH=' ' THEN ;
+              ELSE
+                 V=V||CH;
        END;
-       ELSE
-       IF CH='(' | CH=')' | CH='+' | CH='-' | CH='*' | CH='/' |
-          CH='^' | CH=',' THEN
-       DO;
-           STACK_MAX=STACK_MAX+1;
-           WORD(STACK_MAX)=V;
-           OP(STACK_MAX)=CH;
-           V='';
-       END;
-       ELSE
-           V=V||CH;
     END;
 
     IF STACK_MAX=0 THEN   /*  EXP IS A SIMPLE VAR OR CONSTANT */
@@ -3044,6 +3245,7 @@
  ********************************************************************/
     DECLARE (LP,RP)                 FIXED BINARY ALIGNED;
     DECLARE (I,J,K,HJ,HK,OFFSET)    FIXED BINARY ALIGNED;
+    DECLARE OFFSET2                 FIXED BINARY ALIGNED;
     DECLARE  TMP_VAR                CHAR(5);
     DECLARE  SYM_DESC               CHAR(8);
 
@@ -3095,6 +3297,11 @@
        END;
     END;
 
+    IF STACK_PRINT_DEBUG THEN
+    DO;
+       PUT SKIP LIST('****SIMPLIFY_SUB_STACK BEFORE ADJ',LP,'TO ',RP);
+       CALL DEBUG_PRINT_STACK;
+    END;
      /*   ADJUST POINTERS TO IGNORE LP AND RP   */
 
     IF OP(LP)= '(' THEN
@@ -3113,7 +3320,43 @@
     IF K<J THEN
     DO;
        IF STACK_PRINT_DEBUG THEN
-          PUT SKIP(2) LIST('****PROCESS_OPERATORS BYPASSED',J,K);
+       DO;
+          PUT SKIP(2) LIST('****PROCESS_OPERATORS BYPASSED BEFORE',J,K);
+          CALL DEBUG_PRINT_STACK;
+          PUT SKIP DATA(K,SYMBOL(OFFSET2),SYM_TYPE(OFFSET2));
+          PUT SKIP DATA(WORD(K),OP(K));
+       END;
+       IF WORD(K)=(10)' ' THEN
+       DO;
+          IF STACK_PRINT_DEBUG THEN
+              PUT SKIP LIST('WORD IS BLANK');
+          IF OP(K)='(' & OP(J)=')' THEN
+          DO;
+             OFFSET2=LOOKUP_SYMBOL_TABLE(WORD(J));
+          END;
+          ELSE
+          DO;
+             CALL PRINT_ERR(K,'**** STACK ERROR ****');
+             GOTO SIMPLIFY_SUB_STACK_EXIT;
+          END;
+       END;
+       ELSE
+       DO;
+          OFFSET2=LOOKUP_SYMBOL_TABLE(WORD(K));
+          IF OP(K)='(' & SYM_TYPE(OFFSET2)=SS_VAR THEN
+          DO;
+             CALL PRINT_ERR(K,'**** ' || SYMBOL(OFFSET2) ||
+                              ' NOT A DIM OR FN ****');
+             GOTO SIMPLIFY_SUB_STACK_EXIT;
+          END;
+       END;
+       IF STACK_PRINT_DEBUG THEN
+       DO;
+          PUT SKIP(2) LIST('****PROCESS_OPERATORS BYPASSED AFTER',J,K);
+          CALL DEBUG_PRINT_STACK;
+          PUT SKIP DATA(K,SYMBOL(OFFSET2),SYM_TYPE(OFFSET2));
+          PUT SKIP DATA(WORD(K),OP(K));
+       END;
     END;
     ELSE
     DO;
@@ -3133,48 +3376,46 @@
     DO;
        IF STACK_MAX=1 THEN;
        ELSE
-       IF STACK_MAX=2 THEN
-       DO;
-          WORD(1)=WORD(2);
-          OP(1)=' ';
-          STACK_MAX=1;
-          OFFSET=LOOKUP_SYMBOL_TABLE(WORD(1));
-          IF EXPR THEN
-              CALL ADD_PCODE(PC_OPCODE_LDA,OFFSET);
-          ELSE
-              CALL ADD_PCODE(PC_OPCODE_STA,OFFSET);
-       END;
-       ELSE
        DO;
           IF STACK_PRINT_DEBUG THEN
           DO;
              PUT SKIP LIST('SIMPLIFY_SUB_STACK BEFORE UPDATE',
                            LP,RP);
-             DO I=1 TO STACK_MAX;
-                PUT SKIP LIST(I,WORD(I),OP(I));
+             CALL DEBUG_PRINT_STACK;
+          END;
+          IF STACK_MAX=2 THEN
+          DO;
+             WORD(1)=WORD(2);
+             OP(1)=' ';
+             STACK_MAX=1;
+             OFFSET=LOOKUP_SYMBOL_TABLE(WORD(1));
+             IF EXPR THEN
+                 CALL ADD_PCODE(PC_OPCODE_LDA,OFFSET);
+             ELSE
+                 CALL ADD_PCODE(PC_OPCODE_STA,OFFSET);
+          END;
+          ELSE
+          DO;
+             WORD(LP)=WORD(LP+1);
+             IF LP+2 < STACK_MAX THEN
+                OP(LP)=OP(LP+2);
+             ELSE
+                OP(LP)=' ';
+             DO I=LP+1 TO STACK_MAX;
+                ITEMS(I)=ITEMS(I+2);
              END;
+             IF LP+1=STACK_MAX THEN
+                STACK_MAX=STACK_MAX-1;
+             ELSE
+                STACK_MAX=STACK_MAX-2;
+             K=K-1;
+             J=LP;
           END;
-          WORD(LP)=WORD(LP+1);
-          IF LP+2 < STACK_MAX THEN
-             OP(LP)=OP(LP+2);
-          ELSE
-             OP(LP)=' ';
-          DO I=LP+1 TO STACK_MAX;
-             ITEMS(I)=ITEMS(I+2);
-          END;
-          IF LP+1=STACK_MAX THEN
-             STACK_MAX=STACK_MAX-1;
-          ELSE
-             STACK_MAX=STACK_MAX-2;
-          K=K-1;
-          J=LP;
           IF STACK_PRINT_DEBUG THEN
           DO;
              PUT SKIP LIST('SIMPLIFY_SUB_STACK AFTER UPDATE',
                            LP,RP);
-             DO I=1 TO STACK_MAX;
-                PUT SKIP LIST(I,WORD(I),OP(I));
-             END;
+             CALL DEBUG_PRINT_STACK;
           END;
        END;
     END;
@@ -3194,7 +3435,8 @@
             SYM_TYPE(OFFSET)=SS_STRDIM  THEN
             CALL PROCESS_SUBSCRIPT(OFFSET);
          ELSE
-            IF SYM_TYPE(OFFSET)=SS_VAR THEN;
+            IF SYM_TYPE(OFFSET)=SS_VAR   |
+               SYM_TYPE(OFFSET)=SS_CONST THEN;
             ELSE
                CALL PRINT_ERR(STMT_CH,'EXPECTING DIM');
     END;
@@ -3203,9 +3445,7 @@
     IF STACK_PRINT_DEBUG THEN
     DO;
        PUT SKIP LIST('****SIMPLIFY_SUB_STACK EXIT');
-       DO I=1 TO STACK_MAX;
-          PUT SKIP LIST(I,WORD(I),OP(I));
-       END;
+       CALL DEBUG_PRINT_STACK;
     END;
 
 
@@ -3326,9 +3566,7 @@
              IF STACK_PRINT_DEBUG THEN
              DO;
                 PUT SKIP LIST('PROCESS_OPERATORS UPDATE',J,K);
-                DO I=1 TO STACK_MAX;
-                  PUT SKIP LIST(I,WORD(I),OP(I));
-                END;
+                CALL DEBUG_PRINT_STACK;
              END;
           END;
           ELSE
@@ -3336,10 +3574,9 @@
              IF STACK_PRINT_DEBUG THEN
              DO;
                 PUT SKIP LIST('**** NOT A SUB*',OP1,OP2);
-                DO I=1 TO STACK_MAX;
-                  PUT SKIP LIST(I,WORD(I),OP(I));
-                END;
-                PUT SKIP DATA(J);
+                CALL DEBUG_PRINT_STACK;
+                PUT SKIP DATA(J,SYMBOL(OFFSET),SYM_TYPE(OFFSET));
+                PUT SKIP DATA(WORD(J),OP(J));
              END;
              TMP_VAR='TMP'||TMP_CNT;
              TMP_CNT=TMP_CNT+1;
@@ -3377,9 +3614,7 @@
              IF STACK_PRINT_DEBUG THEN
              DO;
                 PUT SKIP LIST('PROCESS_OPERATORS UPDATE',J,K);
-                DO I=1 TO STACK_MAX;
-                  PUT SKIP LIST(I,WORD(I),OP(I));
-                END;
+                CALL DEBUG_PRINT_STACK;
              END;
           END;
        END;
@@ -3390,9 +3625,7 @@
     IF STACK_PRINT_DEBUG THEN
     DO;
        PUT SKIP LIST('PROCESS_OPERATORS EXIT',J,K);
-       DO I=1 TO STACK_MAX;
-          PUT SKIP LIST(I,WORD(I),OP(I));
-       END;
+       CALL DEBUG_PRINT_STACK;
     END;
 
  END PROCESS_OPERATORS;
@@ -3410,9 +3643,7 @@
     IF STACK_PRINT_DEBUG THEN
     DO;
        PUT SKIP LIST('PROCESS_FUNCTION ENTRY');
-       DO I=1 TO STACK_MAX;
-             PUT SKIP LIST(I,WORD(I),OP(I));
-       END;
+       CALL DEBUG_PRINT_STACK;
        PUT SKIP LIST('LP=',LP);
     END;
 
@@ -3444,10 +3675,20 @@
        /**************************************************************
        *                                                             *
        *  ADJUST THE STACK TO REPLACE THE FUNC REF WITH THE TEMP VAR *
+       *  SPECIAL CASE WHERE STACK REDUCES TO 1 ITEM. OTHERWISE      *
        *  IF NO OTHER OPERATORS FOLLOW, PUSH UP 2 ITEMS,  IF OTHER   *
        *  OPERATORS FOLLOW, PUSH UP 1 ITEM ONLY.                     *
        *                                                             *
        **************************************************************/
+       IF STACK_MAX = 4 &
+          WORD(1) = (10)' ' & OP(1) = '(' & OP(2) = '(' &
+                              OP(3) = ')' & OP(4) = ')'  THEN
+       DO;
+          WORD(1)=TMP_VAR;
+          OP(1)=' ';
+          STACK_MAX=1;
+       END;
+       ELSE
        IF STACK_MAX < 5 THEN
        DO;
           WORD(LP)=TMP_VAR;
@@ -3473,9 +3714,7 @@
     IF STACK_PRINT_DEBUG THEN
     DO;
        PUT SKIP LIST('PROCESS_FUNCTION EXIT');
-       DO I=1 TO STACK_MAX;
-             PUT SKIP LIST(I,WORD(I),OP(I));
-       END;
+       CALL DEBUG_PRINT_STACK;
     END;
 
  END PROCESS_FUNCTION;
@@ -3660,7 +3899,7 @@
    /*  DO I=1 TO STACK_MAX;
              PUT SKIP LIST(I,WORD(I),OP(I));
        END;                                   *DEL*/
-          CALL DEBUG_PRINT_STACK;
+       CALL DEBUG_PRINT_STACK;
     END;
 
  GENERATE_1_SUB:PROC;
@@ -3885,7 +4124,7 @@
      DECLARE PC_INST(0:GENPC_CTR)      LABEL;
      DECLARE LIB_FNC(2:GENSYM_CTR)     LABEL;
      DECLARE (P_PTR,P_PTR_SUB)         FIXED BINARY ALIGNED;
-     DECLARE (P_CTR,P_CTR_MAX)         FIXED BINARY ALIGNED;
+     DECLARE (P_CTR,P_CTR_MAX)         FIXED BINARY(31) ALIGNED;
      DECLARE (DSL_REG,OFFSET_VAL)      FIXED BINARY ALIGNED;
      DECLARE (LS1_REG,LS2_REG)         FIXED BINARY ALIGNED;
      DECLARE CUR_LN                    FIXED BINARY ALIGNED;
@@ -3976,9 +4215,9 @@
       IF ABNORMAL_STOP THEN
           RETURN;
 
+      P_CTR=P_CTR+1;
       IF ENFORCE_MAX_EXECS THEN
       DO;
-          P_CTR=P_CTR+1;
           IF P_CTR>P_CTR_MAX THEN
           DO;
              CALL PRINT_ERR('**** PROGRAM ABORTED AFTER EXECUTING ' ||
@@ -4299,6 +4538,14 @@
          ACCUM=TRUNC(ACCUM+0.5);
       ELSE
          ACCUM=TRUNC(ACCUM-0.5);
+      SYM_VALUE(PC_OBJECT(P_PTR))=ACCUM;
+      GO TO END_FNC;
+ LIB_FNC(11):
+      ACCUM=EXP(ACCUM);
+      SYM_VALUE(PC_OBJECT(P_PTR))=ACCUM;
+      GO TO END_FNC;
+ LIB_FNC(12):
+      ACCUM=LOG(ACCUM);
       SYM_VALUE(PC_OBJECT(P_PTR))=ACCUM;
    /* GO TO END_FNC; */
  END_FNC:
@@ -5373,9 +5620,9 @@
 
  END ANALYZE_DYNALLOC_RC;
 
- %INCLUDE BASINP;
+ /*#INCLUDE ..\..\BASICTEST\BASICTEST1UP\BASINP.PLI*/ %INCLUDE BASINP;
 
- %INCLUDE BASPRT;
+ /*#INCLUDE ..\..\BASICTEST\BASICTEST1UP\BASPRT.PLI*/ %INCLUDE BASPRT;
 
  END BASIC;
 ./  ENDUP

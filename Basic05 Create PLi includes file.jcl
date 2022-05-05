@@ -1,8 +1,148 @@
-//BASIC05  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A ,TYPRUN=SCAN
+//BASIC05  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A, ,TYPRUN=SCAN
+//  USER=HERC01,PASSWORD=CUL8TR
 //S1  EXEC PGM=IEBUPDTE,PARM=NEW
-//SYSPRINT DD SYSOUT=C
-//SYSUT2   DD DSN=HERCEL.BASICINC.PLI,DISP=OLD
+//SYSPRINT DD SYSOUT=*
+//SYSUT2   DD DSN=HERC01.BASICINC.PLI,DISP=OLD
 //SYSIN DD *
+./  ADD NAME=$DEBUG
+ /*********************************************************************
+
+   THIS MACRO GENERATES DEBUGGING STATEMENTS AT COMPILE TIME.  THESE
+   ARE FOR SERIOUS TESTING DEBUGGING.  THESE ARE CONTROLLED BY $DEBUG
+
+   THERE ARE OTHER RUNTIME DEBUGGING OPTIONS CONTROL AT RUN TIME BY
+   CONTROL STATEMENTS AT RUN TIME (I.E. *STACK ) COMMAND.
+
+   TO USE, %INCLUDE THIS MEMBER IN YOUR PROGRAM AND COMPILE WITH
+   THE MACRO OPTION. (NOMACRO IS THE DEFAULT).
+
+   CODE:
+       $DEBUG(T,D1,D2,D3)
+
+       WHERE
+         T   IS OPTION ON,OFF,DATA,LIST
+              ON AND OFF ENABLE/DISABLE THE COMPILATION OF PL/1 CODE
+              DATA, IF ON, GENERATE A PUT SKIP DATA STATEMENT
+              LIST, IF ON, GENERATE A PUT SKIP LIST STATEMENT
+         D1  IS DISPLAYED IF DEBUG IS ON
+         D2  IS DISPLAYED IF DEBUG IS ON
+         D3  IS DISPLAYED IF DEBUG IS ON
+
+   IF YOU WANT A TRACE OF WHAT THIS MACRO IS DOING, AFTER THE
+   %INCLUDE, CODE A %$DEBUG_TR = 'ON';  BY DEFAULT, $DEBUG ONLY
+   GENERATES CODE IF NECESSARY.
+
+ **********************************************************************/
+
+
+ %DECLARE
+     $DEBUG    ENTRY (CHARACTER,CHARACTER,CHARACTER,CHARACTER)
+               RETURNS (CHARACTER);
+ %DECLARE
+     $DEBUG_ST            CHAR,
+     $DEBUG_TR            CHAR;
+    %$DEBUG_ST = 'OFF';
+    %$DEBUG_TR = 'OFF';
+ %$DEBUG:
+     PROCEDURE (T,D1,D2,D3) RETURNS (CHARACTER);
+
+       DECLARE  (T,D1,D2,D3,D4) CHARACTER;
+       DECLARE  DEBUG_LINE  CHARACTER;
+
+       IF T = 'OFF' THEN
+       DO;
+          IF $DEBUG_ST = 'OFF' THEN
+          DO;
+             IF $DEBUG_TR = 'ON' THEN
+                RETURN('/* DEBUG IS OFF */');
+             ELSE
+                RETURN('');
+          END;
+          ELSE
+          DO;
+             $DEBUG_ST = 'OFF';
+             IF $DEBUG_TR = 'ON' THEN
+                RETURN('/* DEBUG TURNED OFF */');
+             ELSE
+                RETURN('');
+          END;
+       END;
+
+       IF T = 'ON' THEN
+       DO;
+          IF $DEBUG_ST = 'ON' THEN
+          DO;
+             IF $DEBUG_TR = 'ON' THEN
+                RETURN('/* DEBUG ALREADY ON */');
+             ELSE
+                RETURN('');
+          END;
+          ELSE
+          DO;
+             $DEBUG_ST = 'ON';
+             IF $DEBUG_TR = 'ON' THEN
+                RETURN('/* DEBUG TURNED ON */');
+             ELSE
+                RETURN('');
+          END;
+       END;
+
+       IF T = 'DATA' THEN
+       DO;
+          IF $DEBUG_ST = 'ON' THEN
+          DO;
+             DEBUG_LINE='PUT SKIP DATA(' || D1;
+             IF D2='' THEN;
+             ELSE
+             DO;
+                DEBUG_LINE=DEBUG_LINE || ',' || D2;
+                IF D3='' THEN;
+                ELSE
+                DO;
+                   DEBUG_LINE=DEBUG_LINE || ',' || D3;
+                END;
+             END;
+             DEBUG_LINE=DEBUG_LINE || ');';
+          END;
+          ELSE
+          DO;
+             IF $DEBUG_TR = 'ON' THEN
+                DEBUG_LINE='/* DEBUG IS OFF */';
+             ELSE
+                DEBUG_LINE='';
+          END;
+          RETURN(DEBUG_LINE);
+       END;
+
+       IF T = 'LIST' THEN
+       DO;
+          IF $DEBUG_ST = 'ON' THEN
+          DO;
+             DEBUG_LINE='PUT SKIP LIST(' || D1;
+             IF D2='' THEN;
+             ELSE
+             DO;
+                DEBUG_LINE=DEBUG_LINE || ',' || D2;
+                IF D3='' THEN;
+                ELSE
+                DO;
+                   DEBUG_LINE=DEBUG_LINE || ',' || D3;
+                END;
+             END;
+             DEBUG_LINE=DEBUG_LINE || ');';
+          END;
+          ELSE
+          DO;
+             IF $DEBUG_TR = 'ON' THEN
+                DEBUG_LINE='/* DEBUG IS OFF */';
+             ELSE
+                DEBUG_LINE='';
+          END;
+          RETURN(DEBUG_LINE);
+       END;
+       RETURN('/* INVALID $DEBUG OPTION IGNORED */');
+ %END;
+ /*********************************************************************/
 ./  ADD NAME=FIX2STR
  /*********************************************************************
 

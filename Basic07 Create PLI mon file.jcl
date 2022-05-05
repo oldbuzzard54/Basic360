@@ -1,16 +1,17 @@
-//BASIC07  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A ,TYPRUN=SCAN
+//BASIC07  JOB MSGCLASS=A,MSGLEVEL=(1,1),CLASS=A, ,TYPRUN=SCAN
+//   USER=HERC01,PASSWORD=CUL8TR
 //S1  EXEC PGM=IEBUPDTE,PARM=NEW
-//SYSPRINT DD SYSOUT=C
-//SYSUT2   DD DSN=HERCEL.BASICMON.PLI,DISP=OLD
+//SYSPRINT DD SYSOUT=*
+//SYSUT2   DD DSN=HERC01.BASICMON.PLI,DISP=OLD
 //SYSIN DD *
 ./  ADD NAME=BASENV
-1       /************* START BASENV  V1.0.0 MON *****************/
+1       /************* START BASENV  V1.0.1 MON *****************/
 0BASIC:PROCEDURE(EXEC_PARM) OPTIONS(MAIN);
      DECLARE EXEC_PARM  CHAR(100) VARYING;
  /********************************************************************
  *                                                                   *
  *   BASENV - THIS IS THE MODULE TO ESTABLISH THE BASIC ENVIRONMENT  *
- *            THIS ONE SETS UP FOR THE BATCH1UP OPTION.              *
+ *            THIS ONE SETS UP FOR THE BASICMON OPTION.              *
  *                                                                   *
  ********************************************************************/
 
@@ -50,7 +51,7 @@
  ********************************************************************/
 
      DECLARE PAGE_TITLE          CHAR(20) STATIC
-                                 INITIAL('BASIC/360 V3.2.0 MON');
+                                 INITIAL('BASIC/360 V3.3.0 MON');
      DECLARE ENV_PTR             POINTER;
 
      DECLARE DEFAULT_DSN         CHAR(44) INITIAL((44)' ');
@@ -77,7 +78,6 @@
  /********************************************************************
  *                                                                   *
  *                                                                   *
- * NESTING:                                                          *
  ********************************************************************/
 
  INPUT_RTN:PROC(VALUE);
@@ -120,7 +120,7 @@
  /******************** END BASPRT.PLI V1.0.0 **********************/
 ./  ADD NAME=BASRDR
 1/****************  START BASRDR  V1.0.0  *****************************
- *                   FOR STANDALONE BATCH                             *
+ *                   FOR BASICMON BATCH                               *
  *                                                                    *
  *  THIS IS THE MAIN DRIVING LOOP FOR BASIC.  IF THERE IS A ++        *
  *  LINE AS FIRST LINE IN SYSIN, IT IS ASSUMED BASIC IS RUNNING IN    *
