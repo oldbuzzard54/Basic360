@@ -1,7 +1,7 @@
 # Basic360 Full install from source
-This is project is the complete source code for generating the
-Basic360 Compiler/Interpreter V3.3.  Note that V3.3 is a bug fix
-release with no significant enhancements to V3.2.
+This project is the complete source code for generating the
+Basic360 Compiler/Interpreter V3.3.1.  Note that V3.3.1 is a bug fix
+release with no significant enhancements to V3.3.0
 
 The install JCL was simplified to place the dataset on 3350 volume
 PUB000 with high level qualifier HERC01.  This enables installation

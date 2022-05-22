@@ -51,7 +51,7 @@
  ********************************************************************/
 
      DECLARE PAGE_TITLE          CHAR(20) STATIC
-                                 INITIAL('BASIC/360 V3.3.0 MON');
+                                 INITIAL('BASIC/360 V3.3.1 MON');
      DECLARE ENV_PTR             POINTER;
 
      DECLARE DEFAULT_DSN         CHAR(44) INITIAL((44)' ');
@@ -72,7 +72,7 @@
          PUT SKIP EDIT('*** EXEC_PARM=',EXEC_PARM) (A,A)
                       ('DEFAULT DSN=',NEW_LIB) (SKIP,A,A);
      END;
-        /*************** END BASENV  V1.0.0 *****************/
+        /*************** END BASENV  V1.0.1 *****************/
 ./  ADD NAME=BASINP
  /******************** START BASINP.PLI V1.0.0 **********************/
  /********************************************************************

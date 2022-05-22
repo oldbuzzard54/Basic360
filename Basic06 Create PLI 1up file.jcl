@@ -16,6 +16,7 @@
  *   VERSION  COMMENTS                                               *
  *     1.0.0  INITIAL VERSION                                        *
  *     1.0.1  CHANGED MAX_EXECS FROM 5000 TO 0                       *
+ *     1.0.2  CHANGE PAGE TITLE                                      *
  *                                                                   *
  ********************************************************************/
 
@@ -56,7 +57,7 @@
  ********************************************************************/
 
      DECLARE PAGE_TITLE          CHAR(22) STATIC
-                                 INITIAL('BASIC/360   V3.3.0 1UP');
+                                 INITIAL('BASIC/360   V3.3.1 1UP');
      DECLARE ENV_PTR             POINTER;
 
      DECLARE DEFAULT_DSN         CHAR(44) INITIAL((44)' ');
@@ -105,7 +106,7 @@
                       ('DEFAULT DSN=',DEFAULT_LIB) (SKIP,A,A);
  ENV_EXIT:
      END;
-        /*************** END BASENV  V1.0.1 *****************/
+        /*************** END BASENV  V1.0.2 *****************/
 ./  ADD NAME=BASINP
  /******************** START BASINP.PLI V1.0.0 **********************/
  /********************************************************************

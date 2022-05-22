@@ -5,7 +5,7 @@
 //SYSUT2   DD DSN=HERC01.BASIC.PLI,DISP=OLD
 //SYSIN DD *
 ./  ADD NAME=BASCORE
-             /****** BASIC/360  V3.3 ** 05/04/2022 *********/
+             /****** BASIC/360  V3.3.1 ** 05/21/2022 *********/
  /********************************************************************
  *                                                                   *
  *   SOUTH HAMMOND INSTITUTE OF TECHNOLOGY  BASIC/360   FALL 1974    *
@@ -34,6 +34,16 @@
  *                         PER RUN.                                  *
  *      3) ONLINE (WISH) - BASIC PROGRAM CAN BE ENTERED, EDITED AND  *
  *                         EXECUTED ON LINE.                         *
+ *                                                                   *
+ ********************************************************************/
+ /********************************************************************
+ *                                                                   *
+ *   BASIC/360 V3.3.1                                                *
+ *                                                                   *
+ *   V3.3.1 CHANGE LOG                                               *
+ *  -- FIXES:                                                        *
+ *   - FIXED BUG THAT REJECTED ZERO SUBSCRIPTS                       *
+ *   - FIXED BUG THAT CAUSE STACK ERRORS                             *
  *                                                                   *
  ********************************************************************/
  /********************************************************************
@@ -909,7 +919,7 @@
                            SUBSTR(STMT,STMT_CH,STMT_RIGHT-STMT_CH+1))
                   $DEBUG(LIST,'NEW CODE IS ',
                            SUBSTR(STMT,TEMP_LEFT,
-                                  TEMP_RIGHT-TEMP_LEFT+1))
+                                  TEMP_RIGHT-TEMP_LEFT+1))                                             I
                   IF ALL_PROCESSED THEN
                       MORE_STMTS=FALSE;
                   ELSE
@@ -2996,7 +3006,7 @@
     DECLARE CH                  CHAR(1);
     DECLARE V                   CHAR(10) VARYING;
     DECLARE FN_TMP              CHAR(10);
-    DECLARE (LAST_LP,OFFSET,
+    DECLARE (LAST_LP,FIRST_RP,OFFSET,
              RP,BREAKER,
              MAX_BREAKER)       FIXED BINARY ALIGNED;
     DECLARE NO_PARENS           BIT(1) ALIGNED;
@@ -3039,13 +3049,18 @@
     DO WHILE(CONTINUE_SCAN & BREAKER <= MAX_BREAKER);
        I=0;
        NO_PARENS=TRUE;
-       LAST_LP=0;
+       LAST_LP,FIRST_RP=0;
        DO WHILE(NO_PARENS & I<= STACK_MAX);
           I=I+1;
           IF OP(I)='(' THEN LAST_LP=I;
           ELSE
+          DO;
              IF OP(I)=')' THEN
+             DO;
+                FIRST_RP=I;
                 NO_PARENS=FALSE;
+             END;
+          END;
        END; /* DO WHILE(NO_PARENS....  */
        IF NO_PARENS THEN
        DO;
@@ -3053,7 +3068,11 @@
           RP=STACK_MAX;
        END;
        ELSE
-          RP=I;
+          RP=FIRST_RP;
+       $DEBUG(OFF)
+       $DEBUG(DATA,LAST_LP,RP,FIRST_RP)
+       $DEBUG(DATA,STACK_MAX)
+       $DEBUG(OFF)
        CALL SIMPLIFY_SUB_STACK(LAST_LP,RP);
    /** IF STACK_MAX > 1 THEN
           CONTINUE_SCAN = TRUE;
@@ -3323,8 +3342,8 @@
        DO;
           PUT SKIP(2) LIST('****PROCESS_OPERATORS BYPASSED BEFORE',J,K);
           CALL DEBUG_PRINT_STACK;
-          PUT SKIP DATA(K,SYMBOL(OFFSET2),SYM_TYPE(OFFSET2));
-          PUT SKIP DATA(WORD(K),OP(K));
+          PUT SKIP DATA(K,J);
+          PUT SKIP DATA(WORD(K),OP(K),OP(J));
        END;
        IF WORD(K)=(10)' ' THEN
        DO;
@@ -3397,7 +3416,7 @@
           ELSE
           DO;
              WORD(LP)=WORD(LP+1);
-             IF LP+2 < STACK_MAX THEN
+             IF LP+2 <= STACK_MAX THEN
                 OP(LP)=OP(LP+2);
              ELSE
                 OP(LP)=' ';
@@ -3812,7 +3831,7 @@
              END;
           END;
 
-          IF SYM_DIM_MAX(OFFSET)=1 THEN
+          IF SYM_DIM_MAX(OFFSET)=0 THEN
           DO;
              IF SUBTR_PRINT THEN
                 PUT SKIP LIST('****PROCESS_SUB - 1 DIM');
@@ -4030,11 +4049,13 @@
    ELSE
    DO;
       NUM_OCCURS2=NUM_OCCURS;
-      NUM_OCCURS=1;
+      NUM_OCCURS=0;
    END;
- /*PUT SKIP DATA(NUM_OCCURS,NUM_OCCURS2);                    *DEL*/
-   NUM_OCCURS_T=NUM_OCCURS*MAX(NUM_OCCURS2,1);
- /*PUT SKIP DATA(NUM_OCCURS_T);                              *DEL*/
+   $DEBUG(OFF)
+   $DEBUG(DATA,NUM_OCCURS,NUM_OCCURS2)
+   NUM_OCCURS_T=(NUM_OCCURS+1)*MAX(NUM_OCCURS2+1,1);
+   $DEBUG(DATA,NUM_OCCURS_T)
+   $DEBUG(OFF)
    IF OFFSET=SS_MAX &
       (SYM_TYPE(OFFSET)=SS_DIM_VAR |
        SYM_TYPE(OFFSET)=SS_STRDIM) THEN
@@ -4046,8 +4067,8 @@
        END;
        SYM_DIM_MAX(SS_MAX)=NUM_OCCURS;
        SYM_DIM2_MAX(SS_MAX)=NUM_OCCURS2;
-       DO I=1 TO NUM_OCCURS;
-       DO J=1 TO NUM_OCCURS2;
+       DO I=0 TO NUM_OCCURS;
+       DO J=0 TO NUM_OCCURS2;
           SS_MAX=SS_MAX+1;
           SYMBOL(SS_MAX)=SUBSTR(DIM_VAR,1,9)||'+';
           SYM_TYPE(SS_MAX)=SYM_TYPE(OFFSET);
@@ -5003,23 +5024,46 @@
                           SYMBOL(PC_OBJECT(P_PTR)));
           RETURN;
       END;
-      IF LS1_REG < ONE_FBA |
-         LS1_REG > SYM_DIM_MAX(PC_OBJECT(P_PTR)) THEN
+ /*******************************************************************
+ *                                                                  *
+ *  SPECIAL NOTE - SINGLE SUBSCRIPTED ITEMS ARE TREATED LIKE ITEMS  *
+ *     THAT HAVE A TWO SUBSCRIPTS.  EXAMPLE  A(10) IS INTERNALLY    *
+ *     PROCESSED AS A(0,10).  THEREFORE, ANY DIM VARIABLE THAT HAS  *
+ *     A ZERO FOR THE FIRST, THE ONLY SUBSCRIPT MUST BE TREATED AS  *
+ *     THE SECOND SUBSCRIPT.                                        *
+ *                                                                  *
+ *******************************************************************/
+      IF SYM_DIM_MAX(PC_OBJECT(P_PTR)) = 0 THEN  /* SINGLE SUB? */
       DO;
-          CALL PRINT_ERR('**** SUBSCRIPT 1 OUT OF RANGE FOR ' ||
-                         SYMBOL(PC_OBJECT(P_PTR)) || IL1);
-          RETURN;
+         IF LS2_REG < ZERO_FBA |
+            LS2_REG > SYM_DIM2_MAX(PC_OBJECT(P_PTR)) THEN
+         DO;
+             CALL PRINT_ERR('**** SUBSCRIPT OUT OF RANGE FOR ' ||
+                            SYMBOL(PC_OBJECT(P_PTR)) );
+             RETURN;
+         END;
+         REGISTER = LS2_REG + 1;
       END;
-      IF LS2_REG < ONE_FBA |
-         LS2_REG > SYM_DIM2_MAX(PC_OBJECT(P_PTR)) THEN
+      ELSE
       DO;
-          CALL PRINT_ERR('**** SUBSCRIPT 2 OUT OF RANGE FOR ' ||
-                         SYMBOL(PC_OBJECT(P_PTR)) || IL2);
-          RETURN;
+         IF LS1_REG < ZERO_FBA |
+            LS1_REG > SYM_DIM_MAX(PC_OBJECT(P_PTR)) THEN
+         DO;
+             CALL PRINT_ERR('**** SUBSCRIPT 1 OUT OF RANGE FOR ' ||
+                            SYMBOL(PC_OBJECT(P_PTR)) );
+             RETURN;
+         END;
+         IF LS2_REG < ZERO_FBA |
+            LS2_REG > SYM_DIM2_MAX(PC_OBJECT(P_PTR)) THEN
+         DO;
+             CALL PRINT_ERR('**** SUBSCRIPT 2 OUT OF RANGE FOR ' ||
+                            SYMBOL(PC_OBJECT(P_PTR)) );
+             RETURN;
+         END;
+         REGISTER = LS1_REG * (SYM_DIM2_MAX(PC_OBJECT(P_PTR)) + 1) +
+                    LS2_REG + 1;
       END;
 
-      REGISTER=(LS1_REG-1) * SYM_DIM2_MAX(PC_OBJECT(P_PTR)) +
-               (LS2_REG-1) + 1;
 
       DSL_REG=REGISTER;
       IF EXECUTION_DEBUG THEN
@@ -5027,6 +5071,10 @@
          PUT SKIP DATA(LS1_REG,LS2_REG);
          PUT SKIP DATA(DSL_REG,REGISTER);
       END;
+      $DEBUG(OFF)
+      $DEBUG(DATA,LS1_REG,LS2_REG)
+      $DEBUG(DATA,DSL_REG,REGISTER)
+      $DEBUG(OFF)
       GO TO P_CODE_NEXT;
 
  /*     PCODE LS1 - LOAD SUBSCRIPT REGISTER 1  */
