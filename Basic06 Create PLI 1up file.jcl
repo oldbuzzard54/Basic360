@@ -17,6 +17,7 @@
  *     1.0.0  INITIAL VERSION                                        *
  *     1.0.1  CHANGED MAX_EXECS FROM 5000 TO 0                       *
  *     1.0.2  CHANGE PAGE TITLE                                      *
+ *            FIXED SETTING OF ENFORCE_MAX_EXECS                     *
  *                                                                   *
  ********************************************************************/
 
@@ -100,7 +101,7 @@
              ELSE
                  NEW_LIB=DEFAULT_LIB;
          DEFAULT_LIB=NEW_LIB;
-         ENFORCE_MAX_EXEC=(MAX_EXECS>0);
+         ENFORCE_MAX_EXECS=(MAX_EXECS>0);              /* PATCH 01 */
          PUT SKIP EDIT('*** EXEC_PARM PASSED=',EXEC_PARM) (A,A)
                       ('MAX_EXECS CHANGED TO ',MAX_EXECS) (SKIP,A,F(10))
                       ('DEFAULT DSN=',DEFAULT_LIB) (SKIP,A,A);
